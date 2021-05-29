@@ -1,10 +1,10 @@
 const fs = require('fs');
-const http = require('http');
 const { join } = require('path');
 const { homedir } = require('os');
 const { expect } = require('chai');
 const { DownloaderHelper } = require('../dist');
-
+const http = require('http');
+const https = require('https');
 jest.mock('fs');
 jest.mock('http');
 jest.mock('https');
@@ -27,6 +27,25 @@ function getRequestFn(requestOptions) {
         };
     };
 }
+
+// http/https request object
+function getRequestFn(requestOptions) { 
+    return (opts, callback) => {
+        callback({
+            body: requestOptions.body || '',
+            on: jest.fn(),
+            pipe: jest.fn(),
+            statusCode: requestOptions.statusCode || 200,
+            headers: requestOptions.headers || {},
+            unpipe: jest.fn(),
+        });
+        return {
+            on: jest.fn(),
+            end: jest.fn(),
+            abort: jest.fn(),
+        };
+    };
+} 
 
 const downloadURL = 'http://www.ovh.net/files/1Gio.dat'; // http://www.ovh.net/files/
 describe('DownloaderHelper', function () {
@@ -155,28 +174,27 @@ describe('DownloaderHelper', function () {
         });
 
         it("callback should return fileName, filePath and contentType if a response is provided", function (done) {
-            const fileNameFromURL = downloadURL.split('/').pop();
-            const fullPath = join(__dirname, fileNameFromURL);
+            const fullPath = join(__dirname, fileName);
             const contentType = 'application/zip';
 
-            fs.createWriteStream.mockReturnValue({ on: jest.fn() });
             http.request.mockImplementation(getRequestFn({
                 statusCode: 200,
                 headers: {
                     'content-type': contentType,
                 }
             }));
-
+            // https.request.mockImplementation(requestFn);
+            
             const dl = new DownloaderHelper(downloadURL, __dirname, {
                 fileName: function (_fileName, _filePath, _contentType) {
-                    expect(_fileName).to.be.equal(fileNameFromURL);
+                    expect(_fileName).to.be.equal(fileName);
                     expect(_filePath).to.be.equal(fullPath);
                     expect(_contentType).to.be.equal(contentType);
                     done();
-                    return fileNameFromURL;
                 }
             });
-            dl.start();
+            dl.start()
+            dl.__getFileNameFromOpts(fileName);
         });
 
         it("should rename only the file name and not the extension when a object is passed in the 'fileName' opts with only 'name' attr", function () {
@@ -221,7 +239,8 @@ describe('DownloaderHelper', function () {
             const dl = new DownloaderHelper('https://google.com/', __dirname, {
                 fileName: { name: newFileName, ext: true }
             });
-            const result = dl.__getFileNameFromHeaders({});
+            const result = dl.__getFileNameFromHeaders({
+            });
             expect(result).to.be.equal(newFileName);
         });
 
@@ -231,7 +250,7 @@ describe('DownloaderHelper', function () {
                 fileName: { name: newFileName, ext: true }
             });
             const result = dl.__getFileNameFromHeaders({
-                'content-disposition': 'Content-Disposition: attachment; filename="' + newFileName + '"',
+                'content-disposition': 'Content-Disposition: attachment; filename="'+newFileName+'"',
             });
             expect(result).to.be.equal(newFileName);
         });
